@@ -160,6 +160,11 @@ class Device {
 		const byte size;
 		const char* name; 
 
+		inline bool compareName(const char* comp_name) {
+			return strncmp(name,comp_name,DEVICE_NAME_SIZE)==0;
+		}
+
+
 		Device(DeviceIO IO, DeviceType type, int deviceId, int radioId=0, const char* name={0},int size=0, NewValueFunction dataFromRadio=NULL):
 			IO(IO),type(type),deviceId(deviceId),radioId(radioId),name(name),size(DeviceValueMinSize(type,size)) {
 				this->dataFromRadio=dataFromRadio;
@@ -496,6 +501,13 @@ class DeviceIndex {
 			return getDeviceByMasterId((int)radioId<<8|deviceId);
 		}
 
+		Device* getDevice(const char* name, int radioId=0) {
+			for(int i=0;i<nDevices;i++)
+				if(devices[i]->radioId==radioId&&devices[i]->compareName(name))
+					return devices[i];
+			return NULL;
+		}
+
 		void addDevice(Device& device) {
 			addDevice(&device);
 		}
@@ -559,7 +571,12 @@ struct Slave {
 		status+=IsActive;
 		last_rx=millis();
 	}
+
+	inline bool compareName(const char* comp_name) {
+		return strncmp(name,comp_name,SLAVE_NAME_MAX_LEN)==0;
+	}
 };
+
 
 class SlaveIndex {
 	const byte maxSlaves;
@@ -642,22 +659,26 @@ enum Command:uint8_t {
 	cmdSetDeviceFlags,
 };
 
-
+typedef void(*NewSlaveFunction)(Slave&);
+typedef void(*NewDeviceFunction)(Device&);
 
 class Proto {
 	
 	public:
 		static Proto* GetInstance() { return instance; }
 		ProtoEEPROM* getEEPROM() { return eeprom; }
+		DeviceIndex deviceIndex;
+		SlaveIndex slaveIndex;
 
 	protected:
 		static Proto* instance;
+		NewSlaveFunction newSlave;
+		NewDeviceFunction newDevice;
+
 		ProtoEEPROM* eeprom;
 		uint8_t rx_address[RADIO_ADDRESS_LEN];
 		uint8_t tx_address[RADIO_ADDRESS_LEN];
 		ProtoStatus flags;
-		DeviceIndex deviceIndex;
-		SlaveIndex slaveIndex;
 		Scheduler runner;
 		RF24 radio;
 		Task* taskLoop;
@@ -725,7 +746,8 @@ class Proto {
 		}
 
    public:				
-
+		void setNewSlave(NewSlaveFunction func) { newSlave=func; }
+		void setNewDevice(NewDeviceFunction func) { newDevice=func; }
 		void setEEPROM(ProtoEEPROM& ee) {
 			eeprom=&ee;
 			
@@ -1022,6 +1044,8 @@ class Proto {
 			slave->dataReceived();
 			if(flags&IsPrimaryMaster)
 				sendDeviceListRequest(slaveId);
+			if(newSlave)
+				newSlave(*slave);
 		}
 
 	protected:
@@ -1330,6 +1354,8 @@ class Proto {
 				deviceIndex.addDevice(dev);
 			}
 			rx+=dev->valueFromRadio(rx);
+			if(newDevice!=NULL)
+				newDevice(*dev);
 		}
 
 		void execDeviceListRequest(uint8_t pipe, uint8_t* rx) {
