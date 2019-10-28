@@ -8,6 +8,8 @@
 #include "RF24.h"
 #include "printf.h"
 
+
+
 #define DEVICE_NAME_SIZE 10
 #define RADIO_ADDRESS_LEN 3
 #define RADIO_SEND_WAITING 500
@@ -55,6 +57,87 @@ EEPROM_ESP32_Class EEPROM32;
 #define EEPROM EEPROM32
 #endif
 
+enum ProtoStatus:uint16_t {
+//	ClearAll=0,
+	NoAddressConfigured=1, 
+	NoDevicesListed=2, 
+	IsConnected=4,
+	IsPrimaryMaster=8,
+	IsSecondaryMaster=16,
+	IsSlave=32,
+	HasFullDB=64,
+	IsSending=128,
+	IsWaitingToSend=256,
+};
+
+enum SlaveStatus:uint8_t {
+//	ClearAll=0,
+	AreDevicesReaded=1,
+	IsActive=2,
+	FullDB=4,
+};
+
+
+enum DeviceStatus:byte {
+//	ClearAll=0,
+	NewValue=1,
+	FailToUpdate=2,
+	OnChangeTransaction=32,
+	SendOnChange=64,
+	SendOnPoll=128
+};
+
+/*
+#if defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_SAM) || defined(ARDUINO_ARCH_ESP8266)
+#   include <stlport.h>
+#   include <type_traits>
+#else
+#   include <type_traits>
+#endif
+*/
+#if defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_SAM) || defined(ARDUINO_ARCH_ESP8266)
+template<typename E> inline E operator+(const E a, const E b) { return (E)((int)a|(int)b); }
+template<typename E> inline E operator-(const E a, const E b) { return (E)((int)a&~(int)b); }
+template<typename E> inline bool operator&(const E a, const E b) { return (bool)((int)a&(int)b); }
+template<typename E> inline E& operator+=(E& a, const E b) { return (E&)((int&)a|=(int)b);}
+template<typename E> inline E& operator-=(E& a, const E b) { return (E&)((int&)a&=~(int)b); }
+#else
+template<typename bit>
+struct is_bit: std::false_type{};
+
+template<>
+struct is_bit<DeviceStatus>: std::true_type{};
+
+template<>
+struct is_bit<SlaveStatus>: std::true_type{};
+
+template<>
+struct is_bit<ProtoStatus>: std::true_type{};
+
+
+
+
+template<typename E>
+typename std::enable_if<is_bit<E>::value,E>::type
+inline  operator+(const E a, const E b) { return (E)((int)a|(int)b); }
+
+template<typename E> 
+typename std::enable_if<is_bit<E>::value,E>::type
+inline operator-(const E a, const E b) { return (E)((int)a&~(int)b); }
+
+template<typename E> 
+typename std::enable_if<is_bit<E>::value,bool>::type
+inline operator&(const E a, const E b) { return (bool)((int)a&(int)b); }
+
+template<typename E> 
+typename std::enable_if<is_bit<E>::value,E&>::type
+inline operator+=(E& a, const E b) { return (E&)((int&)a|=(int)b);}
+
+template<typename E> 
+typename std::enable_if<is_bit<E>::value,E&>::type
+inline operator-=(E& a, const E b) { return (E&)((int&)a&=~(int)b); }
+
+#endif
 
 
 /*******************************
@@ -62,19 +145,6 @@ EEPROM_ESP32_Class EEPROM32;
  *    Bitwise templates on enum flags
  *
  *******************************/
-
-/*
-template<typename E, class = typename E::ClearAll> inline E operator+(const E a, const E b) { return (E)((int)a|(int)b); }
-template<typename E, class = typename E::ClearAll> inline E operator-(const E a, const E b) { return (E)((int)a&~(int)b); }
-template<typename E, class = typename E::ClearAll> inline bool operator&(const E a, const E b) { return (bool)((int)a&(int)b); }
-template<typename E, class = typename E::ClearAll> inline E& operator+=(E& a, const E b) { return (E&)((int&)a|=(int)b);}
-template<typename E, class = typename E::ClearAll> inline E& operator-=(E& a, const E b) { return (E&)((int&)a&=~(int)b); }
-*/
-template<typename E> inline E operator+(const E a, const E b) { return (E)((int)a|(int)b); }
-template<typename E> inline E operator-(const E a, const E b) { return (E)((int)a&~(int)b); }
-template<typename E> inline bool operator&(const E a, const E b) { return (bool)((int)a&(int)b); }
-template<typename E> inline E& operator+=(E& a, const E b) { return (E&)((int&)a|=(int)b);}
-template<typename E> inline E& operator-=(E& a, const E b) { return (E&)((int&)a&=~(int)b); }
 
 int nstrcpy(char* dest, const char*src, int maxlen) {
 	int i=0;
@@ -114,14 +184,6 @@ union DeviceValue {
 	char* text;
 };
 
-enum DeviceStatus:byte {
-//	ClearAll=0,
-	NewValue=1,
-	FailToUpdate=2,
-	OnChangeTransaction=32,
-	SendOnChange=64,
-	SendOnPoll=128
-};
 
 
 class Device;
@@ -542,26 +604,6 @@ class DeviceIndex {
  *    Slave, Slave Index
  *
  *******************************/
-
-enum ProtoStatus:uint16_t {
-//	ClearAll=0,
-	NoAddressConfigured=1, 
-	NoDevicesListed=2, 
-	IsConnected=4,
-	IsPrimaryMaster=8,
-	IsSecondaryMaster=16,
-	IsSlave=32,
-	HasFullDB=64,
-	IsSending=128,
-	IsWaitingToSend=256,
-};
-
-enum SlaveStatus:uint8_t {
-//	ClearAll=0,
-	AreDevicesReaded=1,
-	IsActive=2,
-	FullDB=4,
-};
 
 struct Slave {
 	uint8_t radioId;
