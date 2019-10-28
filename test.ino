@@ -35,6 +35,8 @@ void setup() {
 void loop() {
     static unsigned long t=millis();
 
+	Master.execute();
+
     if(millis()-t>60000) {
 
     	// put your main code here, to run repeatedly:
