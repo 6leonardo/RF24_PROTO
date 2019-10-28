@@ -20,6 +20,7 @@
 #define SLAVE_NAME_MAX_LEN 10
 #define SLAVE_ADDRESS_REQUEST_TIMEOUT 1000
 #define SLAVE_ACTIVE_TIMEOUT 30000
+#define WRITE_RESPONSE_DELAY 200
 #define MASTER_RADIO_ID 10
 #define DEVICE_TEXT_MAX_SIZE 28
 #define AVR_TO_PLATFORM(device_value,device_type) 
@@ -331,9 +332,12 @@ class Device {
 		}
 
 		void setNewValue();
-		void clearNewValue() 	{ flags-=NewValue; }
-		void startTransaction() { flags+=OnChangeTransaction; }
-		void endTransaction() 	{ flags-=OnChangeTransaction+NewValue; }
+
+    public:
+		void clearNewValue() 	    { flags-=NewValue; }
+		void clearFailToUpdate() 	{ flags-=FailToUpdate; }
+		void startTransaction()     { flags+=OnChangeTransaction; }
+		void endTransaction() 	    { flags-=OnChangeTransaction; }
 	
 	friend class Proto;
 };
@@ -681,23 +685,33 @@ class Proto {
 		ProtoStatus flags;
 		Scheduler runner;
 		RF24 radio;
+        Task taskLoop{100,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->loop(); }};
+        Task taskPoll{100,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->poll(); }};
+		Task taskKeepAlive{60000,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->keepAlive(); }};
+        Task taskDelayedAnswer{WRITE_RESPONSE_DELAY,TASK_ONCE,(TaskCallback) [](){ Proto::GetInstance()->sendWriteResponse(); }};
+        /*
 		Task* taskLoop;
 		Task* taskKeepAlive;
 		Task* taskPoll;
+        Task* taskDelayedAnswer;
+        */
 		char* name;
 
 		void masterStartSend(uint8_t*sendto) {
-			flags+=IsWaitingToSend;
+			bool waiting=flags&IsWaitingToSend;
+			//flags+=IsWaitingToSend;
 			if(flags&IsSending) {
+				flags+=IsWaitingToSend;
 				while(flags&IsSending)
 					delayMicroseconds(200);
+				if(!waiting)
+					flags-=IsWaitingToSend;
 			}
 			else {
 				radio.stopListening();
 				radio.closeReadingPipe(0);
 			}
 			flags+=IsSending;
-			flags-=IsWaitingToSend;
 			radio.openWritingPipe(sendto);
 		}
 
@@ -708,17 +722,20 @@ class Proto {
 
 		void masterEndSend() {
 			flags-=IsSending;
-			if(flags&IsWaitingToSend) {
+			if(!flags&IsWaitingToSend) {
 				radio.openReadingPipe(0,MASTER_CONFIG_ADDRESS);
 				radio.startListening();
 			}
 		}
 
 		void slaveStartSend() {
-			flags+=IsWaitingToSend;
+			bool waiting=flags&IsWaitingToSend;
 			if(flags&IsSending) {
+				flags+=IsWaitingToSend;
 				while(flags&IsSending)
 					delayMicroseconds(200);
+				if(!waiting)
+					flags-=IsWaitingToSend;
 			}
 			else {
 				radio.stopListening();
@@ -726,7 +743,8 @@ class Proto {
 					radio.closeReadingPipe(0);
 			}
 			flags+=IsSending;
-			flags-=IsWaitingToSend;
+			//to replicate data to the slave with fulldb .... 
+			//their are listen on second pipe to the master address
 			if(flags&IsPrimaryMaster)
 				radio.openWritingPipe(rx_address);
 		}
@@ -790,7 +808,11 @@ class Proto {
 		void setMasterAddress(uint8_t* address) {
 			//forza sempre il il radio id del master
 			address[0]=MASTER_RADIO_ID;
-			memcpy(flags&IsPrimaryMaster?rx_address:tx_address,address,RADIO_ADDRESS_LEN);
+			//il master lo ha sul tx perche serve per replicare i dati per i FULLDB
+			memcpy(tx_address,address,RADIO_ADDRESS_LEN);
+			if(flags&IsPrimaryMaster) {
+				memcpy(rx_address,address,RADIO_ADDRESS_LEN);
+			}
 			if(eeprom!=NULL) {
 				eeprom->writeMasterAddress(address);				
 			}
@@ -827,14 +849,25 @@ class Proto {
 				radio.openReadingPipe(1,rx_address);
 			}
 			radio.startListening();
-			
-			//tskPoll=new Task(POLL_SECONDS*TASK_SECOND,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->taskPoll();},&runner,true);
-			//taskLoop=new Task(TASK_IMMEDIATE,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->loop(); },&runner,true);
-			taskLoop=new Task(100,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->loop(); },&runner,true);
+			/*
+			taskLoop=new Task(100,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->loop(); },&runner,false);
 			if(flags&IsPrimaryMaster) {
-				taskPoll=new Task(100,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->poll(); },&runner,true);
+				taskPoll=new Task(100,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->poll(); },&runner,false);
 			}
-			taskKeepAlive=new Task(60000,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->keepAlive(); },&runner,true);
+			taskKeepAlive=new Task(60000,TASK_FOREVER,(TaskCallback) [](){ Proto::instance->keepAlive(); },&runner,false);
+			taskDelayedAnswer=new Task(WRITE_RESPONSE_DELAY,TASK_ONCE,(TaskCallback) [](){ Proto::GetInstance()->sendWriteResponse(); }, &runner,false);
+			*/
+		   	runner.init();
+			runner.addTask(taskLoop); taskLoop.enable();
+			if(flags&IsPrimaryMaster) {
+				runner.addTask(taskPoll); taskPoll.enable();
+			}
+			runner.addTask(taskKeepAlive); //taskKeepAlive.enable();
+			runner.addTask(taskDelayedAnswer); 
+		}
+
+		void execute() {
+			runner.execute();
 		}
 
 		void keepAlive() {
@@ -927,6 +960,8 @@ class Proto {
 			if(fullDB) flags+=HasFullDB;
 			if(master) {
 				memcpy(rx_address,MASTER_DEFAULT_ADDRESS,RADIO_ADDRESS_LEN);
+				//il master lo ha sul tx perche serve per replicare i dati per i FULLDB
+				memcpy(tx_address,rx_address,RADIO_ADDRESS_LEN);
 			}
 			else {
 				srand(time(NULL));
@@ -1138,19 +1173,23 @@ class Proto {
 			sendDeviceValuesCmd(tx_address[0],n,poll,cmdPollResponse);
 		}
 
-		//gestire last.... stare in ricezione fino a quando non arriva last=1
 		void execWrite(uint8_t pipe, uint8_t* rx, Command cmd) {
 			assert(cmd==cmdWrite||cmd==cmdUpdateFail||cmd==cmdUpdateDone||cmd==cmdReadResponse||cmd==cmdPollResponse);
 			uint8_t slaveId=*(rx++);
-			Slave* slave=slaveIndex.getSlave(slaveId);
-			slave->dataReceived();
-			if(cmd==cmdWrite) {
+            if(cmd!=cmdWrite) {
+    			Slave* slave=slaveIndex.getSlave(slaveId);
+    			slave->dataReceived();
+            }
+            else 
 				slaveId=0;
-			}
 			int last=*(rx++);
 			int n=*(rx++);
+            /*
 			Device* done_devs[n];
 			Device* fail_devs[n];
+            */
+            //new code
+            bool giveAnswer=false;
 			int done=0;
 			int fail=0;
 			for(int i=0;i<n;i++) {
@@ -1161,10 +1200,14 @@ class Proto {
 					assert(dev->IO==Output);
 					dev->startTransaction();
 					rx+=dev->valueFromRadio(rx);
+                    /*
 					if(dev->testFlags(FailToUpdate))
 						fail_devs[fail++]=dev;
 					if(dev->testFlags(NewValue))
 						done_devs[done++]=dev;
+                   */
+                  //new code
+                  giveAnswer=true;
 				}
 				else {
 					assert(!(flags&IsSlave)||flags&HasFullDB);
@@ -1174,17 +1217,79 @@ class Proto {
 					if(cmd=cmdUpdateFail)
 						dev->flags+=FailToUpdate;
 				}
-			}				
+			}	
+            /*			
 			if(done>0)
 				sendDeviceValuesCmd(slaveId,done,done_devs,cmdUpdateDone);
 			if(fail>0)
 				sendDeviceValuesCmd(slaveId,done,done_devs,cmdUpdateFail);
 
-			for(int i=0;i<done;i++)
+			for(int i=0;i<done;i++) {
 				done_devs[i]->endTransaction();
-			for(int i=0;i<fail;i++)
+                done_devs[i]->clearNewValue();
+            }
+			for(int i=0;i<fail;i++) {
 				done_devs[i]->endTransaction();
+                done_devs[i]->clearFailToUpdate();
+            }
+            */
+           if(giveAnswer) {
+               if(taskDelayedAnswer.isEnabled()) {
+                   taskDelayedAnswer.delay(WRITE_RESPONSE_DELAY);
+               }
+               else {
+				   taskDelayedAnswer.enable();
+               }
+           }
 		}
+
+        void sendWriteResponse() {
+            uint8_t slaveId=rx_address[0];
+            Device** devs=deviceIndex.getDevices();
+            int ndev=deviceIndex.getNumDevices();
+            int done=0, fail=0;
+            for(int i=0;i<ndev;i++) {
+                if(devs[i]->radioId==0&&devs[i]->testFlags(OnChangeTransaction))
+                    if(devs[i]->testFlags(NewValue))
+                        done++;
+                    else if(devs[i]->testFlags(FailToUpdate))
+                        fail++;
+            }
+
+            Device* done_devs[MAX(done,1)];
+            Device* fail_devs[MAX(fail,1)];
+
+            done=0;
+            fail=0;
+            for(int i=0;i<ndev;i++) {
+                if(devs[i]->radioId==0&&devs[i]->testFlags(OnChangeTransaction))
+                    if(devs[i]->testFlags(NewValue))
+                        done_devs[done++]=devs[i];
+                    else if(devs[i]->testFlags(FailToUpdate))
+                        fail_devs[fail++]=devs[i];
+
+            }
+			flags+=IsWaitingToSend;
+			if(done>0)
+				sendDeviceValuesCmd(slaveId,done,done_devs,cmdUpdateDone);
+			if(fail>0)
+				sendDeviceValuesCmd(slaveId,done,done_devs,cmdUpdateFail);
+			flags-=IsWaitingToSend;
+			
+			if(flags&IsPrimaryMaster)
+				masterEndSend();
+			else
+				slaveEndSend();
+
+			for(int i=0;i<done;i++) {
+				done_devs[i]->endTransaction();
+                done_devs[i]->clearNewValue();
+            }
+			for(int i=0;i<fail;i++) {
+				done_devs[i]->endTransaction();
+                done_devs[i]->clearFailToUpdate();
+            }
+        }
 
 		void sendReadRequest(uint8_t slaveId, Device* dev) {
 			sendReadRequest(slaveId,1,&dev);
@@ -1278,6 +1383,9 @@ class Proto {
 
 		}
 		//anche il master deve inviare le devices... per i fulldb capire come
+		//forse dopo la connessione di ogni nuovo slave 
+		//se lo slave è full db...dovrebbe inviare il proprio sendDeviceListResponse
+		//e forzare il sendDeviceListResponse di tutti gli slave connessi
 		void sendDeviceListRequest(uint8_t slaveId) {
 			CREATE_TX_BUFFER(tx,tx_buf);
 			CREATE_SEND_ADDRESS(sendTo,slaveId);
