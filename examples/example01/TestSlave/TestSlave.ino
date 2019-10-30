@@ -1,4 +1,4 @@
-#include "proto.h"
+#include "../../../proto.h"
 //#include "printf.h"
 
 RF24 radio(8,9);

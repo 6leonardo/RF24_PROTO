@@ -1,4 +1,4 @@
-#include "proto.h"
+#include "../../../src/proto.h"
 
 RF24 radio(8,9);
 Proto Master(radio,"Master",10,5,true);
