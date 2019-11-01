@@ -79,13 +79,12 @@ void setup()
 
 void loop()
 {
-	static unsigned long t = millis();
-
+	static unsigned long tempo = millis();
+	static int phase = 0;
 	//Master.execute();
 	Master.loop();
-	if (millis() - t > 60000)
+	if ((millis() - tempo) > 60000 && phase == 0)
 	{
-
 		// put your main code here, to run repeatedly:
 		if (sonda1 != 0)
 		{
@@ -105,12 +104,18 @@ void loop()
 						led->setDigital(true);
 					Serial.flush();
 				}
+			phase = 1;
+		}
+		else
+		{
+			tempo = millis();
 		}
 	}
 
-	if (millis() - t > 2 * 60000)
+	if ((millis() - tempo) > 120000 && phase == 1)
 	{
-
+		Serial.print(F("if 2 "));
+		Serial.println(millis() - tempo);
 		// put your main code here, to run repeatedly:
 		if (sonda1 != 0)
 		{
@@ -129,9 +134,10 @@ void loop()
 					if (led != NULL)
 						led->setDigital(false);
 
-					t = millis();
 					Serial.flush();
 				}
 		}
+		phase = 0;
+		tempo = millis();
 	}
 }
