@@ -1385,7 +1385,7 @@ protected:
 
 				Device *dev = devs[i];
 				//assert(dev != NULL);
-				if (dev == NULL || dev->radioId != 0)
+				if (dev == NULL || !(dev->radioId == 0 || cmd == cmdWrite))
 					continue;
 				//assert(dev->IO == Output);
 				//assert(dev->radioId != 0);
@@ -1472,11 +1472,6 @@ public:
 			slaveId = 0;
 		int last = *(rx++);
 		int n = *(rx++);
-		/*
-      Device* done_devs[n];
-      Device* fail_devs[n];
-            */
-		//new code
 		bool giveAnswer = false;
 		int done = 0;
 		int fail = 0;
@@ -1956,4 +1951,3 @@ void __assert(const char *__func, const char *__file, int __lineno, const char *
 	// abort program execution.
 	abort();
 }
-
