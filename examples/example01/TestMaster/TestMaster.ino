@@ -8,26 +8,51 @@ int sonda1 = 0;
 int sonda2 = 0;
 bool newTemp1(Device &temp1)
 {
-	debug(F("New Temp1: "));
-	debugn(temp1.getAnalogFloat());
+	Serial.print(F("New Temp1: "));
+	Serial.println(temp1.getAnalogFloat());
+	Serial.flush();
 	return true;
 }
+bool newHum1(Device &hum1)
+{
+	Serial.print(F("New Hum1: "));
+	Serial.println(hum1.getAnalogFloat());
+	Serial.flush();
+	return true;
+}
+bool newLevel1(Device &lev1)
+{
+	Serial.print(F("New Level1: "));
+	Serial.println(lev1.getAnalogInt16());
+	Serial.flush();
+	return true;
+}
+
 void newSlaveConnected(Slave &slave)
 {
-	debug(F("newslave "));
-	debugn(slave.name);
+	Serial.print(F("newslave "));
+	Serial.println(slave.name);
 	if (slave.compareName("Slave1"))
 		sonda1 = slave.radioId;
 	if (slave.compareName("Slave2"))
 		sonda2 = slave.radioId;
+	Serial.flush();
 }
 
 void newDeviceConnected(Device &device)
 {
-	debug(F("newdevice "));
-	debugn(device.name);
-	if (device.radioId == sonda1 && device.compareName("Temp1"))
-		device.setNewDataFunc(newTemp1);
+	Serial.print(F("newdevice "));
+	Serial.println(device.name);
+	Serial.flush();
+	if (device.radioId == sonda1)
+	{
+		if (device.compareName("Temp1"))
+			device.setNewDataFunc(newTemp1);
+		if (device.compareName("Hum1"))
+			device.setNewDataFunc(newHum1);
+		if (device.compareName("Level1"))
+			device.setNewDataFunc(newLevel1);
+	}
 }
 
 void setup()
@@ -68,11 +93,17 @@ void loop()
 			if (slave != NULL)
 				if (slave->status & IsActive)
 				{
-					Device *temp = Master.deviceIndex.getDevice("temp1", sonda1);
+					Device *temp = Master.deviceIndex.getDevice("Temp1", sonda1);
 					if (temp != NULL)
+					{
+						Serial.print(F("temp from loop: "));
 						Serial.println(temp->getAnalogFloat());
-					//Device* led=Master.deviceIndex.getDevice("led",sonda1);
-					//led->setDigital(true);
+					}
+					Serial.println(F("now command led"));
+					Device *led = Master.deviceIndex.getDevice("Led1", sonda1);
+					if (led != NULL)
+						led->setDigital(true);
+					Serial.flush();
 				}
 		}
 	}
@@ -89,12 +120,17 @@ void loop()
 				{
 					Device *temp = Master.deviceIndex.getDevice("Temp1", sonda1);
 					if (temp != NULL)
+					{
+						Serial.print(F("temp from loop: "));
 						Serial.println(temp->getAnalogFloat());
-					/*
-                Device* led=Master.deviceIndex.getDevice("led",sonda1);
-                led->setDigital(false);
-                */
+					}
+					Serial.println(F("now command led"));
+					Device *led = Master.deviceIndex.getDevice("Led1", sonda1);
+					if (led != NULL)
+						led->setDigital(false);
+
 					t = millis();
+					Serial.flush();
 				}
 		}
 	}

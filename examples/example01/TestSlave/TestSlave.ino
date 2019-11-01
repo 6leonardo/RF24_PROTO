@@ -5,10 +5,15 @@
 //#define assert(x) Serial.print(#x); Serial.println(x); //assert(x)
 RF24 radio(8, 9);
 Proto uno{radio, "Slave1", 10, 5, false};
-
+bool CommandLed1(Device& led) {
+  Serial.print("led1 now is: ");
+  Serial.println(led.getDigital());
+  return true;
+}
 Device temperature{Input, AnalogFloat, 1, 0, "Temp1"};
 Device humidity{Input, AnalogFloat, 2, 0, "Hum1"};
 Device level{Input, AnalogInt16, 3, 0, "Level1"};
+Device led{Output, Digital, 4, 0, "Led1", CommandLed1};
 
 void setup()
 {
