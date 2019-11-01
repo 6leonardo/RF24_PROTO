@@ -1808,12 +1808,12 @@ public:
     }
   }
 
-  void sendNewValue(Device *device)
+  void sendNewValue(Device *device, Command cmd)
   {
     //se master lo invia a se stesso cosi leggono tutti i fulldb
     debugn(F("sendnewvalue"));
     if (flags & IsPrimaryMaster || flags & IsConnected)
-      sendDeviceValuesCmd(tx_address[0], 1, &device, cmdValueChanged);
+      sendDeviceValuesCmd(tx_address[0], 1, &device, cmd);
   }
 
 public:
@@ -1907,9 +1907,12 @@ void Device::setNewValue()
   if (radioId == 0)
   {
     if (flags & SendOnChange && !(flags & OnChangeTransaction))
-      Proto::GetInstance()->sendNewValue(this);
+      Proto::GetInstance()->sendNewValue(this,cmdValueChanged);
     else
       flags += NewValue;
+  }
+  else if(IO==Output) {
+      Proto::GetInstance()->sendNewValue(this,cmdWrite);
   }
 }
 
@@ -1949,4 +1952,3 @@ void __assert(const char *__func, const char *__file, int __lineno, const char *
   // abort program execution.
   abort();
 }
-
