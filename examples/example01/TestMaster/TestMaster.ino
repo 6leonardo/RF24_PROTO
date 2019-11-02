@@ -28,7 +28,7 @@ bool newLevel1(Device &lev1)
 	return true;
 }
 
-void newSlaveConnected(Slave &slave)
+void newSlaveConnecting(Slave &slave)
 {
 	Serial.print(F("newslave "));
 	Serial.println(slave.name);
@@ -37,6 +37,25 @@ void newSlaveConnected(Slave &slave)
 	if (slave.compareName("Slave2"))
 		sonda2 = slave.radioId;
 	Serial.flush();
+}
+
+void newSlaveConnected(Slave &slave)
+{
+	Serial.println("slave connected");
+	if (slave.compareName("Slave1"))
+	{
+		Device *d[2];
+		d[0] = Master.deviceIndex.getDevice(2, slave.radioId);
+		d[1] = Master.deviceIndex.getDevice(3, slave.radioId);
+		Serial.println("sendonpoll configure");
+		if (d[0] != NULL && d[1] != NULL)
+		{
+			d[0]->setSendOn(SendOnPoll);
+			d[1]->setSendOn(SendOnPoll);
+			Master.sendSetDevicesFlags(slave.radioId, 2, d);
+			Serial.println("sendonpoll configure sent");
+		}
+	}
 }
 
 void newDeviceConnected(Device &device)
@@ -61,15 +80,16 @@ void setup()
 	printf_begin();
 	SPI.begin();
 	radio.begin();
-	radio.setAutoAck(false);
+	radio.setAutoAck(true);
 	radio.setChannel(112);
 	Serial.print("isChipConnected: ");
 	Serial.println(radio.isChipConnected());
 	radio.setRetries(3, 5); // delay, count
 	//radio.setPALevel(RF24_PA_MIN);
 	radio.setDataRate(RF24_250KBPS);
-	Master.setNewSlave(newSlaveConnected);
+	Master.setNewSlaveConnecting(newSlaveConnecting);
 	Master.setNewDevice(newDeviceConnected);
+	Master.setNewSlaveConnected(newSlaveConnected);
 	Serial.print("2.");
 	radio.txDelay = 128;
 	Master.setup();
@@ -86,24 +106,20 @@ void loop()
 	if ((millis() - tempo) > 60000 && phase == 0)
 	{
 		// put your main code here, to run repeatedly:
-		if (sonda1 != 0)
+		Slave *slave = NULL;
+		if (sonda1 != 0 && (slave = Master.slaveIndex.getSlave(sonda1)) != NULL && slave->flags & IsActive)
 		{
-			Slave *slave = Master.slaveIndex.getSlave(sonda1);
-			if (slave != NULL)
-				if (slave->status & IsActive)
-				{
-					Device *temp = Master.deviceIndex.getDevice("Temp1", sonda1);
-					if (temp != NULL)
-					{
-						Serial.print(F("temp from loop: "));
-						Serial.println(temp->getAnalogFloat());
-					}
-					Serial.println(F("now command led"));
-					Device *led = Master.deviceIndex.getDevice("Led1", sonda1);
-					if (led != NULL)
-						led->setDigital(true);
-					Serial.flush();
-				}
+			Device *temp = Master.deviceIndex.getDevice("Temp1", sonda1);
+			if (temp != NULL)
+			{
+				Serial.print(F("temp from loop: "));
+				Serial.println(temp->getAnalogFloat());
+			}
+			Serial.println(F("now command led"));
+			Device *led = Master.deviceIndex.getDevice("Led1", sonda1);
+			if (led != NULL)
+				led->setDigital(true);
+			Serial.flush();
 			phase = 1;
 		}
 		else
@@ -117,28 +133,23 @@ void loop()
 		Serial.print(F("if 2 "));
 		Serial.println(millis() - tempo);
 		// put your main code here, to run repeatedly:
-		if (sonda1 != 0)
+		Slave *slave = NULL;
+		if (sonda1 != 0 && (slave = Master.slaveIndex.getSlave(sonda1)) != NULL && slave->flags & IsActive)
 		{
-			Slave *slave = Master.slaveIndex.getSlave(sonda1);
-			if (slave != NULL)
-				if (slave->status & IsActive)
-				{
-					Device *temp = Master.deviceIndex.getDevice("Temp1", sonda1);
-					if (temp != NULL)
-					{
-						Serial.print(F("temp from loop: "));
-						Serial.println(temp->getAnalogFloat());
-					}
-					Serial.println(F("now command led"));
-					Device *led = Master.deviceIndex.getDevice("Led1", sonda1);
-					if (led != NULL)
-						led->setDigital(false);
+			Device *temp = Master.deviceIndex.getDevice("Temp1", sonda1);
+			if (temp != NULL)
+			{
+				Serial.print(F("temp from loop: "));
+				Serial.println(temp->getAnalogFloat());
+			}
+			Serial.println(F("now command led"));
+			Device *led = Master.deviceIndex.getDevice("Led1", sonda1);
+			if (led != NULL)
+				led->setDigital(false);
 
-					Serial.flush();
-				}
+			Serial.flush();
 		}
 		phase = 0;
 		tempo = millis();
 	}
 }
-

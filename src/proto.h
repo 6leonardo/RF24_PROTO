@@ -11,7 +11,7 @@
 #include "RF24.h"
 #include "printf.h"
 
-#undef NDEBUG
+
 #define debug(x)         \
 	{                    \
 		Serial.print(x); \
@@ -22,6 +22,10 @@
 		Serial.println(x); \
 		Serial.flush();    \
 	}
+
+//#undef NDEBUG
+#define debug(x)
+#define debugn(x)
 
 #define DEVICE_NAME_SIZE 10
 #define RADIO_ADDRESS_LEN 3
@@ -117,18 +121,15 @@ enum DeviceStatus : byte
 #if !defined(ARDUINO_ARCH_ESP32)
 //defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_SAM) || defined(ARDUINO_ARCH_ESP8266)
 template <typename E>
-inline E operator+(const E a, const E b)
-{
-	return (E)((int)a | (int)b);
-}
+inline E operator+(volatile const E a, volatile const E b) { return (E)((int)a | (int)b); }
 template <typename E>
-inline E operator-(const E a, const E b) { return (E)((int)a & ~(int)b); }
+inline E operator-(volatile const E a, volatile const E b) { return (E)((int)a & ~(int)b); }
 template <typename E>
-inline bool operator&(const E a, const E b) { return (bool)((int)a & (int)b); }
+inline volatile bool operator&(volatile const E a, volatile const E b) { return (volatile bool)((volatile int)a & (volatile int)b); }
 template <typename E>
-inline E &operator+=(E &a, const E b) { return (E &)((int &)a |= (int)b); }
+inline E &operator+=(volatile E &a, volatile const E b) { return (E &)((int &)a |= (int)b); }
 template <typename E>
-inline E &operator-=(E &a, const E b) { return (E &)((int &)a &= ~(int)b); }
+inline E &operator-=(volatile E &a, volatile const E b) { return (E &)((int &)a &= ~(int)b); }
 #else
 
 template <typename bit>
@@ -152,19 +153,19 @@ struct is_bit<ProtoStatus> : std::true_type
 };
 
 template <typename E>
-typename std::enable_if<is_bit<E>::value, E>::type inline operator+(const E a, const E b) { return (E)((int)a | (int)b); }
+typename std::enable_if<is_bit<E>::value, E>::type inline operator+(volatile const E a, volatile const E b) { return (E)((int)a | (int)b); }
 
 template <typename E>
-typename std::enable_if<is_bit<E>::value, E>::type inline operator-(const E a, const E b) { return (E)((int)a & ~(int)b); }
+typename std::enable_if<is_bit<E>::value, E>::type inline operator-(volatile const E a, volatile const E b) { return (E)((int)a & ~(int)b); }
 
 template <typename E>
-typename std::enable_if<is_bit<E>::value, bool>::type inline operator&(const E a, const E b) { return (bool)((int)a & (int)b); }
+typename std::enable_if<is_bit<E>::value, volatile bool>::type inline operator&(volatile const E a, volatile const E b) { return (volatile bool)((volatile int)a & (volatile int)b); }
 
 template <typename E>
-typename std::enable_if<is_bit<E>::value, E &>::type inline operator+=(E &a, const E b) { return (E &)((int &)a |= (int)b); }
+typename std::enable_if<is_bit<E>::value, E &>::type inline operator+=(volatile E &a, volatile const E b) { return (E &)((int &)a |= (int)b); }
 
 template <typename E>
-typename std::enable_if<is_bit<E>::value, E &>::type inline operator-=(E &a, const E b) { return (E &)((int &)a &= ~(int)b); }
+typename std::enable_if<is_bit<E>::value, E &>::type inline operator-=(volatile E &a, volatile const E b) { return (E &)((int &)a &= ~(int)b); }
 
 #endif
 
@@ -181,7 +182,7 @@ int nstrcpy(char *dest, const char *src, int maxlen)
 		if (!(*(dest++) = *(src++)))
 			break;
 
-	return i;
+	return ++i;
 }
 
 /*******************************
@@ -250,6 +251,7 @@ protected:
 
 	DeviceValue value;
 	NewValueFunction dataFromRadio;
+	//volatile
 	DeviceStatus flags;
 
 public:
@@ -260,11 +262,11 @@ public:
 	const byte size;
 	const char *name;
 
-	inline bool compareName(const char *comp_name)
-	{
-		return strncmp(name, comp_name, DEVICE_NAME_SIZE) == 0;
-	}
+	inline bool compareName(const char *comp_name) { return strncmp(name, comp_name, DEVICE_NAME_SIZE) == 0; }
 	void setNewDataFunc(NewValueFunction func) { dataFromRadio = func; }
+
+	Device(DeviceIO IO, DeviceType type, int deviceId, const char *name = {0}, NewValueFunction dataFromRadio = NULL, int size = 0) : Device(IO, type, deviceId, 0, name, dataFromRadio, size) {}
+
 	Device(DeviceIO IO, DeviceType type, int deviceId, int radioId = 0, const char *name = {0}, NewValueFunction dataFromRadio = NULL, int size = 0) : IO(IO), type(type), deviceId(deviceId), radioId(radioId), name(name), size(DeviceValueMinSize(type, size))
 	{
 		this->dataFromRadio = dataFromRadio;
@@ -275,19 +277,19 @@ public:
 		switch (type)
 		{
 		case Digital:
-			setDigital(false);
+			value.digital = false;
 			break;
 		case AnalogInt8:
-			setAnalogInt8(0);
+			value.analogInt8 = 0;
 			break;
 		case AnalogInt16:
-			setAnalogInt16(0);
+			value.analogInt16 = 0;
 			break;
 		case AnalogInt32:
-			setAnalogInt32(0);
+			value.analogInt32 = 0;
 			break;
 		case AnalogFloat:
-			setAnalogFloat(0.0f);
+			value.analogFloat = 0.0F;
 			break;
 		case Text:
 			setBuffer(malloc((size_t)size));
@@ -714,15 +716,16 @@ public:
 struct Slave
 {
 	uint8_t radioId;
-	SlaveStatus status;
+	//SlaveStatus status;
+	//volatile
 	SlaveStatus flags;
 	unsigned long last_rx;
 	unsigned long last_poll;
-	int poll_millis = 1000;
+	int poll_millis = 10000;
 	char *name;
 	void dataReceived()
 	{
-		status += IsActive;
+		flags += IsActive;
 		last_rx = millis();
 	}
 
@@ -783,7 +786,7 @@ public:
 		slaves[nSlaves] = new Slave();
 		Slave &slave = *slaves[nSlaves++];
 		slave.radioId = radioId;
-		slave.status = (SlaveStatus)0; //SlaveStatus::ClearAll;
+		slave.flags = (SlaveStatus)0; //SlaveStatus::ClearAll;
 		slave.name = name;
 		slave.last_rx = 0;
 		return &slave;
@@ -834,13 +837,14 @@ public:
 
 protected:
 	static Proto *instance;
-	NewSlaveFunction newSlave;
+	NewSlaveFunction newSlaveConnecting;
 	NewDeviceFunction newDevice;
+	NewSlaveFunction newSlaveConnected;
 
 	ProtoEEPROM *eeprom;
 	uint8_t rx_address[RADIO_ADDRESS_LEN];
 	uint8_t tx_address[RADIO_ADDRESS_LEN];
-	ProtoStatus flags;
+	volatile ProtoStatus flags;
 	//Scheduler runner;
 	RF24 radio;
 	unsigned long delayedAnswerTime;
@@ -857,10 +861,11 @@ protected:
     Task* taskPoll;
         Task* taskDelayedAnswer;
         */
-	char *name;
+	const char *name;
 
 	void masterStartSend(uint8_t *sendto)
 	{
+		debugn(F("start send master"));
 		bool waiting = flags & IsWaitingToSend;
 		//flags+=IsWaitingToSend;
 		if (flags & IsSending)
@@ -884,6 +889,8 @@ protected:
 	void masterSend(uint8_t *tx)
 	{
 		//radio.startFastWrite(tx, MAX_PACKET_SIZE, 1);
+		debug(F("send "));
+		debugn(tx[0]);
 		radio.write(tx, MAX_PACKET_SIZE);
 		//radio.txStandBy(RADIO_SEND_WAITING);
 		delayMicroseconds(100);
@@ -898,10 +905,12 @@ protected:
 			radio.startListening();
 			debugn(F("start listening"));
 		}
+		debugn(F("end send"));
 	}
 
 	void slaveStartSend()
 	{
+		debugn(F("start send slave"));
 		bool waiting = flags & IsWaitingToSend;
 		if (flags & IsSending)
 		{
@@ -926,8 +935,10 @@ protected:
 
 	void slaveSend(uint8_t *tx)
 	{
+		debug(F("send "));
+		debugn(tx[0]);
 		radio.write(tx, MAX_PACKET_SIZE);
-		delayMicroseconds(100);
+		delayMicroseconds(200);
 		//radio.startFastWrite(tx, MAX_PACKET_SIZE, 1);
 		//radio.txStandBy(RADIO_SEND_WAITING);
 	}
@@ -941,10 +952,12 @@ protected:
 				radio.openReadingPipe(0, MASTER_CONFIG_ADDRESS);
 			radio.startListening();
 		}
+		debugn(F("end send"));
 	}
 
 public:
-	void setNewSlave(NewSlaveFunction func) { newSlave = func; }
+	void setNewSlaveConnecting(NewSlaveFunction func) { newSlaveConnecting = func; }
+	void setNewSlaveConnected(NewSlaveFunction func) { newSlaveConnected = func; }
 	void setNewDevice(NewDeviceFunction func) { newDevice = func; }
 	void setEEPROM(ProtoEEPROM &ee)
 	{
@@ -984,11 +997,8 @@ public:
 
 	void setSlaveAddress(uint8_t *address)
 	{
-		debugn(F("set slave address"));
 		assert(flags & IsSlave);
-		debugn(F("set slave address 1"));
 		memcpy(rx_address, address, RADIO_ADDRESS_LEN);
-		debugn(F("set slave address 2"));
 		if (eeprom != NULL)
 		{
 			eeprom->writeSlaveAddress(rx_address);
@@ -1063,6 +1073,7 @@ public:
      */
 	}
 
+protected:
 	void execute()
 	{
 		/*
@@ -1091,69 +1102,20 @@ public:
 			Slave *slave = slaveIndex.getSlaves()[i];
 			if (slave->flags & IsActive)
 				if (millis() - slave->last_poll > slave->poll_millis)
+				{
+					debugn(F("sendPollRequest"));
+					slave->last_poll=millis();
 					sendPollRequest(slave->radioId);
+				}
 		}
 	}
 
-	//loop for radio comunication
-	void loop()
+	void dispachMessage()
 	{
-		static unsigned long last_ping = -60000;
-		if (delayedAnswerActive && millis() - delayedAnswerTime > WRITE_RESPONSE_DELAY)
-		{
-			delayedAnswerActive = false;
-			sendWriteResponse();
-		}
-		if (flags & IsPrimaryMaster)
-		{
-			if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
-			{
-				last_ping = millis();
-				int n = slaveIndex.getNumSlaves();
-				//debug(F("slave active timeout "));
-				//debugn(n);
-				for (int i = 0; i < n; i++)
-				{
-					Slave *slave = slaveIndex.getSlaves()[i];
-					assert(slave != NULL);
-					if (slave->radioId != 0)
-						if (slave->flags & IsActive)
-							if (millis() - slave->last_rx > SLAVE_ACTIVE_TIMEOUT)
-								slave->flags -= IsActive;
-				}
-			}
-		}
-		else
-		{
-			if (flags & NoAddressConfigured)
-			{
-				if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
-				{
-					debugn(F("NewSlave"));
-					last_ping = millis();
-					sendNewSlave();
-					delay(50);
-				}
-			}
-			else if (flags & NoDevicesListed)
-			{
-				if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
-				{
-					debug(F("SlaveOn "));
-					debug((char)tx_address[0]);
-					debug((char)tx_address[1]);
-					debugn((char)tx_address[2]);
-					last_ping = millis();
-					sendSlaveOn();
-					delay(50);
-				}
-			}
-		}
 
 		uint8_t pipe;
 		uint8_t rx_buf[MAX_PACKET_SIZE];
 		uint8_t *rx;
-		delayMicroseconds(500);
 		while (radio.available(&pipe))
 		{
 			rx = rx_buf;
@@ -1207,7 +1169,67 @@ public:
 		}
 	}
 
-	Proto(RF24 &radio, char *name = {0}, int maxDevices = 10, int maxSlaves = 1, bool master = false, bool fullDB = false) : radio(radio), name(name), deviceIndex(maxDevices), slaveIndex(maxSlaves)
+public:
+	//loop for radio comunication
+	void loop()
+	{
+		static unsigned long last_ping = -60000;
+		dispachMessage();
+		if (delayedAnswerActive && millis() - delayedAnswerTime > WRITE_RESPONSE_DELAY)
+		{
+			delayedAnswerActive = false;
+			debugn(F("sendWriteResponse"));
+			sendWriteResponse();
+		}
+		if (flags & IsPrimaryMaster)
+		{
+			if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
+			{
+				last_ping = millis();
+				int n = slaveIndex.getNumSlaves();
+				//debug(F("slave active timeout "));
+				//debugn(n);
+				for (int i = 0; i < n; i++)
+				{
+					Slave *slave = slaveIndex.getSlaves()[i];
+					assert(slave != NULL);
+					if (slave->radioId != 0)
+						if (slave->flags & IsActive)
+							if (millis() - slave->last_rx > SLAVE_ACTIVE_TIMEOUT)
+								slave->flags -= IsActive;
+				}
+			}
+			poll();
+		}
+		else
+		{
+			if (flags & NoAddressConfigured)
+			{
+				if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
+				{
+					debugn(F("NewSlave"));
+					last_ping = millis();
+					sendNewSlave();
+					delay(50);
+				}
+			}
+			else if (flags & NoDevicesListed)
+			{
+				if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
+				{
+					debug(F("SlaveOn "));
+					debug((char)tx_address[0]);
+					debug((char)tx_address[1]);
+					debugn((char)tx_address[2]);
+					last_ping = millis();
+					sendSlaveOn();
+					delay(50);
+				}
+			}
+		}
+	}
+
+	Proto(RF24 &radio, const char *name = {0}, int maxDevices = 10, int maxSlaves = 1, bool master = false, bool fullDB = false) : radio(radio), name(name), deviceIndex(maxDevices), slaveIndex(maxSlaves)
 	{
 
 		assert(instance == NULL);
@@ -1305,6 +1327,7 @@ public:
 		debugn(F("Starting listening"));
 		radio.startListening();
 		flags -= NoAddressConfigured;
+		sendSlaveOn();
 	}
 	void sendSlaveOn()
 	{
@@ -1350,11 +1373,12 @@ public:
 			slave->flags += FullDB;
 		else
 			slave->flags -= FullDB;
-		slave->dataReceived();
+		//slave->dataReceived();
+		slave->last_rx = millis();
+		if (newSlaveConnecting)
+			newSlaveConnecting(*slave);
 		if (flags & IsPrimaryMaster)
 			sendDeviceListRequest(slaveId);
-		if (newSlave)
-			newSlave(*slave);
 	}
 
 protected:
@@ -1432,7 +1456,7 @@ public:
 		{
 			CREATE_SEND_ADDRESS(sendTo, slaveId);
 			masterStartSend(sendTo);
-			masterStartSend(tx_buf);
+			masterSend(tx_buf);
 			masterEndSend();
 		}
 		else
@@ -1593,7 +1617,12 @@ public:
 		sendReadRequest(slaveId, 1, &dev);
 	}
 
-	void sendSetDeviceFlags(uint8_t slaveId, int nDevices, Device **devs)
+	void sendSetDeviceFlags(uint8_t slaveId, Device *dev)
+	{
+		sendSetDevicesFlags(slaveId, 1, &dev);
+	}
+
+	void sendSetDevicesFlags(uint8_t slaveId, int nDevices, Device **devs)
 	{
 		assert(!(flags & IsSlave));
 		CREATE_TX_BUFFER(tx, tx_buf);
@@ -1622,7 +1651,7 @@ public:
 				}
 			}
 			*last = i == nDevices ? 1 : 0;
-			masterStartSend(tx_buf);
+			masterSend(tx_buf);
 		}
 		masterEndSend();
 	}
@@ -1748,8 +1777,11 @@ public:
 		int slaveId = *(rx++);
 		Slave *slave = slaveIndex.getSlave(slaveId);
 		assert(slave != NULL);
-		slave->status += AreDevicesReaded;
+		if (newSlaveConnected != NULL)
+			newSlaveConnected(*slave);
+		slave->flags += AreDevicesReaded;
 		slave->dataReceived();
+		slave->last_poll = millis();
 	}
 
 	void execDeviceListResponse(uint8_t pipe, uint8_t *rx)
@@ -1763,8 +1795,8 @@ public:
 
 		Slave *slave = slaveIndex.getSlave(slaveId);
 		assert(slave != NULL);
-		slave->dataReceived();
-
+		//slave->dataReceived();
+		slave->last_rx = millis();
 		Device *dev = deviceIndex.getDevice(deviceId, slaveId);
 		DeviceIO io = (DeviceIO) * (rx++);
 		DeviceType type = (DeviceType) * (rx++);
@@ -1806,7 +1838,8 @@ public:
 	void sendNewValue(Device *device, Command cmd)
 	{
 		//se master lo invia a se stesso cosi leggono tutti i fulldb
-		debugn(F("sendnewvalue"));
+		debug(F("sendnewvalue "));
+		debugn(device->name);
 		if (flags & IsPrimaryMaster || flags & IsConnected)
 			if (cmd == cmdWrite)
 				sendDeviceValuesCmd(device->radioId, 1, &device, cmd);
