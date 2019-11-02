@@ -1,31 +1,25 @@
 #include <Arduino.h>
 #include <EEPROM.h>
-#include <TaskScheduler.h>
+//#include <TaskScheduler.h>
 #include <SPI.h>
-#define __ASSERT_USE_STDERR
+//#define __ASSERT_USE_STDERR
+#define NDEBUG
 
 #include <assert.h>
 #include <time.h>
 #include <SPI.h>
 #include "nRF24L01.h"
 #include "RF24.h"
+#include <stdio.h>
 #include "printf.h"
 
-
-#define debug(x)         \
-	{                    \
-		Serial.print(x); \
-		Serial.flush();  \
-	}
-#define debugn(x)          \
-	{                      \
-		Serial.println(x); \
-		Serial.flush();    \
-	}
-
-//#undef NDEBUG
-#define debug(x)
-#define debugn(x)
+#if defined(__ASSERT_USE_STDERR)
+	#define DEBUG_BUF_LEN 40
+	extern void debug(const char *fmt, ...);
+	extern void debug(const __FlashStringHelper *fmt,...);
+#else
+	#define debug(x...) (void)0
+#endif
 
 #define DEVICE_NAME_SIZE 10
 #define RADIO_ADDRESS_LEN 3
@@ -865,7 +859,7 @@ protected:
 
 	void masterStartSend(uint8_t *sendto)
 	{
-		debugn(F("start send master"));
+		debug(F("start send master\n"));
 		bool waiting = flags & IsWaitingToSend;
 		//flags+=IsWaitingToSend;
 		if (flags & IsSending)
@@ -889,8 +883,7 @@ protected:
 	void masterSend(uint8_t *tx)
 	{
 		//radio.startFastWrite(tx, MAX_PACKET_SIZE, 1);
-		debug(F("send "));
-		debugn(tx[0]);
+		debug(F("send %d\n"),tx[0]);
 		radio.write(tx, MAX_PACKET_SIZE);
 		//radio.txStandBy(RADIO_SEND_WAITING);
 		delayMicroseconds(100);
@@ -903,14 +896,14 @@ protected:
 		{
 			radio.openReadingPipe(0, MASTER_CONFIG_ADDRESS);
 			radio.startListening();
-			debugn(F("start listening"));
+			debug(F("start listening\n"));
 		}
-		debugn(F("end send"));
+		debug(F("end send\n"));
 	}
 
 	void slaveStartSend()
 	{
-		debugn(F("start send slave"));
+		debug(F("start send slave\n"));
 		bool waiting = flags & IsWaitingToSend;
 		if (flags & IsSending)
 		{
@@ -935,8 +928,7 @@ protected:
 
 	void slaveSend(uint8_t *tx)
 	{
-		debug(F("send "));
-		debugn(tx[0]);
+		debug(F("send %d"),tx[0]);
 		radio.write(tx, MAX_PACKET_SIZE);
 		delayMicroseconds(200);
 		//radio.startFastWrite(tx, MAX_PACKET_SIZE, 1);
@@ -952,7 +944,7 @@ protected:
 				radio.openReadingPipe(0, MASTER_CONFIG_ADDRESS);
 			radio.startListening();
 		}
-		debugn(F("end send"));
+		debug(F("end send\n"));
 	}
 
 public:
@@ -1103,8 +1095,8 @@ protected:
 			if (slave->flags & IsActive)
 				if (millis() - slave->last_poll > slave->poll_millis)
 				{
-					debugn(F("sendPollRequest"));
-					slave->last_poll=millis();
+					debug(F("sendPollRequest\n"));
+					slave->last_poll = millis();
 					sendPollRequest(slave->radioId);
 				}
 		}
@@ -1121,10 +1113,7 @@ protected:
 			rx = rx_buf;
 			radio.read(rx, MAX_PACKET_SIZE);
 			Command cmd = (Command) * (rx++);
-			debug(F("read on pipe "));
-			debug(pipe);
-			debug(F(" "));
-			debugn(cmd);
+			debug(F("read on pipe %d %d\n"),pipe,cmd);
 			switch (cmd)
 			{
 			case cmdNewSlave:
@@ -1163,7 +1152,7 @@ protected:
 				execSetDeviceFlags(pipe, rx);
 				break;
 			default:
-				debugn(F("no cmd"));
+				debug(F("no cmd\n"));
 				//assert(0);
 			}
 		}
@@ -1178,7 +1167,7 @@ public:
 		if (delayedAnswerActive && millis() - delayedAnswerTime > WRITE_RESPONSE_DELAY)
 		{
 			delayedAnswerActive = false;
-			debugn(F("sendWriteResponse"));
+			debug(F("sendWriteResponse\n"));
 			sendWriteResponse();
 		}
 		if (flags & IsPrimaryMaster)
@@ -1207,7 +1196,7 @@ public:
 			{
 				if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
 				{
-					debugn(F("NewSlave"));
+					debug(F("NewSlave\n"));
 					last_ping = millis();
 					sendNewSlave();
 					delay(50);
@@ -1217,10 +1206,7 @@ public:
 			{
 				if (millis() - last_ping > SLAVE_ADDRESS_REQUEST_TIMEOUT)
 				{
-					debug(F("SlaveOn "));
-					debug((char)tx_address[0]);
-					debug((char)tx_address[1]);
-					debugn((char)tx_address[2]);
+					debug(F("SlaveOn %d %d %d\n"),tx_address[0],tx_address[1],tx_address[2]);
 					last_ping = millis();
 					sendSlaveOn();
 					delay(50);
@@ -1306,7 +1292,7 @@ public:
 		masterStartSend(sendTo);
 		masterSend(tx_buf);
 		masterEndSend();
-		debugn(F("sent confignewslave"));
+		debug(F("sent confignewslave\n"));
 	}
 
 	void execConfigSlave(uint8_t pipe, uint8_t *rx)
@@ -1324,7 +1310,7 @@ public:
 		if (flags & HasFullDB)
 			radio.openReadingPipe(2, tx_address);
 		delayMicroseconds(500);
-		debugn(F("Starting listening"));
+		debug(F("Starting listening\n"));
 		radio.startListening();
 		flags -= NoAddressConfigured;
 		sendSlaveOn();
@@ -1733,7 +1719,7 @@ public:
 		masterStartSend(sendTo);
 		masterSend(tx_buf);
 		masterEndSend();
-		debugn(F("device list requested"));
+		debug(F("device list requested\n"));
 	}
 
 	void sendDeviceListResponse()
@@ -1747,8 +1733,7 @@ public:
 			if (dev.radioId == 0)
 			{
 				tx = tx_buf;
-				debug(F("send device "));
-				debugn(dev.name);
+				debug(F("send device %s\n"),dev.name);
 				*(tx++) = cmdDeviceListResponse;
 				*(tx++) = rx_address[0];
 				*(tx++) = dev.deviceId;
@@ -1838,8 +1823,7 @@ public:
 	void sendNewValue(Device *device, Command cmd)
 	{
 		//se master lo invia a se stesso cosi leggono tutti i fulldb
-		debug(F("sendnewvalue "));
-		debugn(device->name);
+		debug(F("sendnewvalue %s\n"),device->name);
 		if (flags & IsPrimaryMaster || flags & IsConnected)
 			if (cmd == cmdWrite)
 				sendDeviceValuesCmd(device->radioId, 1, &device, cmd);
@@ -1972,6 +1956,7 @@ void Device::setSendOn(DeviceStatus status, bool skip_eeprom)
 
 Proto *Proto::instance = NULL;
 
+#if defined(__ASSERT_USE_STDERR)
 // handle diagnostic informations given by assertion and abort program execution:
 void __assert(const char *__func, const char *__file, int __lineno, const char *__sexp)
 {
@@ -1981,6 +1966,26 @@ void __assert(const char *__func, const char *__file, int __lineno, const char *
 	Serial.println(__lineno, DEC);
 	Serial.println(__sexp);
 	Serial.flush();
-	// abort program execution.
+	// abort program execution.	
 	abort();
 }
+
+void debug(const char *fmt, ...) {
+    va_list myargs;
+	va_start(myargs, fmt);
+	char debug_buf[DEBUG_BUF_LEN];
+	vsprintf(debug_buf, fmt, myargs);
+	Serial.print(debug_buf);
+	Serial.flush();
+}
+
+void debug(const __FlashStringHelper *fmt,...) {
+    va_list myargs;
+	va_start(myargs, fmt);
+	char debug_buf[DEBUG_BUF_LEN];
+	strcpy_P(debug_buf,(const char*)fmt);
+	debug(debug_buf,myargs);
+}
+
+#endif
+
