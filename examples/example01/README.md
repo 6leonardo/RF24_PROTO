@@ -1,6 +1,6 @@
 Example1
 
-This example has been tested using an Arduino Uno and an ESP32 Master as a Slave.
+This example has been tested using an Arduino Uno as Slave and an ESP32 as Master.
 
 On the Slave there are 3 Inputs (Temp1, Hum1, Level1) and an Output (Led1).
 
