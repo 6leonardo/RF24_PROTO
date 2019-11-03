@@ -1,4 +1,4 @@
-#Example1
+Example1
 
 This example has been tested using an Arduino Uno and an ESP32 Master as a Slave.
 
